@@ -15,13 +15,14 @@
     "taxRate": 0.26
   },
   "monitoring": {
-    "intervalMinutes": 60,
+    "intervalMinutes": 10,
     "enableNotifications": true,
     "maxCryptocurrenciesToAnalyze": 500,
     "candleTimeframe": "4h",
     "candlesLookback": 100,
     "minVolumeFilter": true,
-    "minVolume": 1000000000,
+    "minVolume": 2000000,
+    "minCandlesForAnalysis": 50,
     "enableMetricsTracking": true
   },
   "strategies": {
@@ -43,10 +44,11 @@
   "riskManagement": {
     "enabled": true,
     "stopLossPercent": 0.03,
-    "takeProfitPercent": 0.06,
+    "takeProfitPercent": 0.02,
     "trailingStopPercent": 0.02,
     "maxConcurrentTrades": 15,
     "positionSizingMethod": "RiskBased",
+    "minRiskRewardRatio": 0.5,
     "validateBeforeEntry": true
   },
   "reporting": {

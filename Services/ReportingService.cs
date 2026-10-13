@@ -9,6 +9,7 @@ public class ReportingService
     private readonly string _dataDirectory;
     private readonly string _tradesFile;
     private List<Trade> _trades = new();
+    private readonly object _lock = new();
 
     public ReportingService()
     {
@@ -33,22 +34,37 @@ public class ReportingService
             Status = "Open"
         };
 
-        _trades.Add(trade);
-        SaveTrades();
+        lock (_lock)
+        {
+            _trades.Add(trade);
+            SaveTrades();
+        }
     }
 
-    public Task CloseTradeAsync(string symbol, decimal exitPrice)
+    // netProfit: profitto netto in € (dopo commissioni e tasse). Se omesso, Profit resta il delta di prezzo per unità.
+    public Task CloseTradeAsync(string symbol, decimal exitPrice, decimal? netProfit = null)
     {
+        lock (_lock)
+        {
         var trade = _trades.FirstOrDefault(t => t.Symbol == symbol && t.Status == "Open");
         if (trade != null)
         {
             trade.ExitPrice = exitPrice;
             trade.CloseTime = DateTime.UtcNow;
             trade.Status = "Closed";
-            trade.Profit = exitPrice - trade.EntryPrice;
-            trade.ProfitPercentage = (trade.Profit.Value / trade.EntryPrice) * 100;
+            if (netProfit.HasValue && trade.PositionSize is > 0)
+            {
+                trade.Profit = netProfit.Value;
+                trade.ProfitPercentage = netProfit.Value / (trade.EntryPrice * trade.PositionSize.Value) * 100;
+            }
+            else
+            {
+                trade.Profit = exitPrice - trade.EntryPrice;
+                trade.ProfitPercentage = (trade.Profit.Value / trade.EntryPrice) * 100;
+            }
             SaveTrades();
             LogClosedTrade(trade);
+        }
         }
 
         return Task.CompletedTask;
@@ -69,7 +85,7 @@ public class ReportingService
             logEntry.AppendLine($"Strategia: {trade.Strategy}");
             logEntry.AppendLine($"Prezzo Entrata: ${trade.EntryPrice:F8}");
             logEntry.AppendLine($"Prezzo Uscita: ${trade.ExitPrice:F8}");
-            logEntry.AppendLine($"Profitto: ${trade.Profit:F8}");
+            logEntry.AppendLine($"Profitto netto: {trade.Profit:F8}");
             logEntry.AppendLine($"Percentuale: {trade.ProfitPercentage:F2}%");
             logEntry.AppendLine($"Stato: {trade.Status}");
             logEntry.AppendLine($"Apertura: {trade.OpenTime:yyyy-MM-dd HH:mm:ss}");
@@ -90,7 +106,7 @@ public class ReportingService
         var weekStartDate = DateTime.UtcNow.AddDays(-(int)DateTime.UtcNow.DayOfWeek);
         var weekEndDate = weekStartDate.AddDays(7);
 
-        var weekTrades = _trades.Where(t =>
+        var weekTrades = GetAllTrades().Where(t =>
             t.OpenTime >= weekStartDate && t.OpenTime < weekEndDate).ToList();
 
         var closedTrades = weekTrades.Where(t => t.Status == "Closed").ToList();
@@ -114,7 +130,7 @@ public class ReportingService
         report.AppendLine($"   • Operazioni Aperte: {openTrades.Count}");
 
         report.AppendLine($"\n💰 PERFORMANCE:");
-        report.AppendLine($"   • Profitto Totale: ${totalProfit:F2}");
+        report.AppendLine($"   • Profitto Totale (netto): €{totalProfit:F2}");
         report.AppendLine($"   • ROI Medio: {totalProfitPercentage:F2}%");
         report.AppendLine($"   • Win Rate: {winRate:F2}%");
 
@@ -204,5 +220,10 @@ public class ReportingService
         }
     }
 
-    public List<Trade> GetAllTrades() => _trades;
+    // Copia della lista: sicura da enumerare mentre il ciclo di mercato aggiunge/chiude trade
+    public List<Trade> GetAllTrades()
+    {
+        lock (_lock)
+            return _trades.ToList();
+    }
 }

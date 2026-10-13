@@ -4,13 +4,13 @@ namespace BotCripto.Services;
 
 public class RiskManager
 {
-    private const int MaxConcurrentTrades = 100;
-    public const decimal TakeProfitPercent = 0.02m;
-    private const decimal DefaultStopLossPercent = 0.015m;
-    private const decimal MinRiskRewardRatio = 0.5m;
+    private readonly int _maxConcurrentTrades;
+    private readonly decimal _defaultStopLossPercent;
+    private readonly decimal _minRiskRewardRatio;
 
-    private readonly decimal _accountSize;
-    private readonly decimal _riskPerTrade;
+    public decimal TakeProfitPercent { get; }
+
+    private readonly decimal _riskPercentPerTrade;
     private readonly decimal _minRewardRatio;
     private readonly decimal _maxPositionSizePercent;
     private readonly decimal _commissionsPercent;
@@ -22,10 +22,17 @@ public class RiskManager
         decimal rewardRiskRatio = 2.0m,
         decimal maxPositionSizePercent = 0.10m,
         decimal commissionsPercent = 0.10m,
-        decimal taxRate = 0.26m)
+        decimal taxRate = 0.26m,
+        decimal stopLossPercent = 0.015m,
+        decimal takeProfitPercent = 0.02m,
+        int maxConcurrentTrades = 100,
+        decimal minRiskRewardRatio = 0.5m)
     {
-        _accountSize = accountSize;
-        _riskPerTrade = accountSize * riskPercentPerTrade;
+        _defaultStopLossPercent = stopLossPercent;
+        TakeProfitPercent = takeProfitPercent;
+        _maxConcurrentTrades = maxConcurrentTrades;
+        _minRiskRewardRatio = minRiskRewardRatio;
+        _riskPercentPerTrade = riskPercentPerTrade;
         _minRewardRatio = rewardRiskRatio;
         _maxPositionSizePercent = maxPositionSizePercent;
         _commissionsPercent = commissionsPercent;
@@ -51,7 +58,7 @@ public class RiskManager
         // 1️⃣ Stop loss: quello della strategia (sotto l'entrata), altrimenti default 1.5%
         var stopLossPrice = strategyStopLossPrice is > 0 && strategyStopLossPrice < entryPrice
             ? strategyStopLossPrice.Value
-            : entryPrice * (1 - DefaultStopLossPercent);
+            : entryPrice * (1 - _defaultStopLossPercent);
         var stopLossPercent = (entryPrice - stopLossPrice) / entryPrice;
         var riskPerUnit = entryPrice - stopLossPrice;
 
@@ -62,7 +69,9 @@ public class RiskManager
         }
 
         // 2️⃣ Calcola position size (in unità dell'asset) basato su rischio fisso
-        var positionSize = _riskPerTrade / riskPerUnit;
+        // Il rischio in € segue il valore corrente dell'account (cresce/cala con i profitti realizzati)
+        var riskPerTradeAmount = currentAccountValue * _riskPercentPerTrade;
+        var positionSize = riskPerTradeAmount / riskPerUnit;
 
         // 3️⃣ Valida contro massimale per trade: confronto in € sul valore nozionale
         // (positionSize è in unità di asset, non in euro - va convertito prima di confrontarlo
@@ -79,14 +88,14 @@ public class RiskManager
         var profitPerUnit = targetPrice - entryPrice;
 
         // 5️⃣ Verifica numero massimo di trade simultanei
-        if (openTrades.Count >= MaxConcurrentTrades)
+        if (openTrades.Count >= _maxConcurrentTrades)
         {
-            result.Reason = $"Max concurrent trades reached: {openTrades.Count} >= {MaxConcurrentTrades}";
+            result.Reason = $"Max concurrent trades reached: {openTrades.Count} >= {_maxConcurrentTrades}";
             return result;
         }
 
         // Esposizione totale (indicatore informativo, non blocca più il trade)
-        var totalExposure = openTrades.Sum(t => t.EntryPrice * 1) + positionSize;
+        var totalExposure = openTrades.Sum(t => t.EntryPrice * (t.PositionSize ?? 0)) + positionSize * entryPrice;
         var leverageRatio = totalExposure / currentAccountValue;
 
         // 6️⃣ Verifica che il profitto atteso copra commissioni
@@ -104,9 +113,9 @@ public class RiskManager
         var totalRisk = positionSize * riskPerUnit;
         var riskRewardRatio = netProfit / totalRisk;
 
-        if (riskRewardRatio < MinRiskRewardRatio)
+        if (riskRewardRatio < _minRiskRewardRatio)
         {
-            result.Reason = $"Risk-reward too low: {riskRewardRatio:F2} < {MinRiskRewardRatio:F1} required";
+            result.Reason = $"Risk-reward too low: {riskRewardRatio:F2} < {_minRiskRewardRatio:F1} required";
             return result;
         }
 
@@ -191,10 +200,7 @@ public class RiskManager
         // Profitto totale
         metrics.TotalProfit = closedTrades.Sum(t => t.Profit ?? 0);
         metrics.TotalCommissions = closedTrades.Sum(t =>
-        {
-            var commissions = (t.EntryPrice * 1 * _commissionsPercent / 100) * 2;
-            return commissions;
-        });
+            ((t.EntryPrice + (t.ExitPrice ?? t.EntryPrice)) * (t.PositionSize ?? 0) * _commissionsPercent / 100));
 
         // Average win/loss
         if (winningTrades.Count > 0)
@@ -213,10 +219,8 @@ public class RiskManager
             metrics.ProfitFactor = decimal.MaxValue;
 
         // ROI
-        // TotalProfit è la somma di Trade.Profit: quando i trade sono chiusi via
-        // CalculateProfitAndTaxes() è già al netto di commissioni e tasse, quindi qui
-        // non va sottratto di nuovo TotalCommissions (che tra l'altro usa una formula
-        // che non tiene conto della position size reale del trade).
+        // TotalProfit è la somma di Trade.Profit, già in € e al netto di commissioni e tasse
+        // (calcolato con CalculateProfitAndTaxes alla chiusura): non sottrarre TotalCommissions.
         metrics.ROI = (metrics.TotalProfit / initialCapital) * 100;
 
         // Consecutive wins/losses

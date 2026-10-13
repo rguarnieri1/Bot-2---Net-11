@@ -5,35 +5,44 @@ namespace BotCripto.Services;
 
 public class BotSchedulerService
 {
-    private const int CheckIntervalMinutes = 10;
+    private readonly BotConfig _config;
+    private int CheckIntervalMinutes => _config.Monitoring.IntervalMinutes;
     private readonly CryptoDataService _dataService;
     private readonly NotificationService _notificationService;
     private readonly ReportingService _reportingService;
     private readonly SmaCrossoverStrategy _smaStrategy;
     private readonly RiskManager _riskManager;
-    private Timer? _marketCheckTimer;
+    private CancellationTokenSource? _cts;
     private Timer? _weeklyReportTimer;
     private bool _isRunning = false;
 
-    private decimal _currentAccountValue = 1000m;
+    private decimal _currentAccountValue;
     private int _checksPerformed = 0;
     private int _signalsGenerated = 0;
     private int _tradesRecorded = 0;
     private readonly Dictionary<string, int> _cumulativeRejectionCounts = new();
 
-    public BotSchedulerService(decimal initialCapital = 1000m)
+    public BotSchedulerService(BotConfig config)
     {
-        _dataService = new CryptoDataService();
+        _config = config;
+        var initialCapital = config.Account.InitialCapital;
+        _dataService = new CryptoDataService(config.Monitoring.MinVolume, config.Monitoring.MaxCryptocurrenciesToAnalyze);
         _notificationService = new NotificationService();
         _reportingService = new ReportingService();
-        _smaStrategy = new SmaCrossoverStrategy();
+        _smaStrategy = new SmaCrossoverStrategy(
+            config.Strategies.SmaCrossover.RsiOverboughtLevel,
+            config.Strategies.SmaCrossover.RsiOversoldLevel);
         _riskManager = new RiskManager(
             initialCapital,
-            riskPercentPerTrade: 0.02m,      // 2% rischio per trade
-            rewardRiskRatio: 2.0m,            // 2:1 R:R
-            maxPositionSizePercent: 0.10m,    // Max 10% per trade
-            commissionsPercent: 0.6m,         // 0.6% commissioni
-            taxRate: 0.26m                    // 26% tasse
+            riskPercentPerTrade: config.Account.RiskPerTrade,
+            rewardRiskRatio: config.Account.RewardRiskRatio,
+            maxPositionSizePercent: config.Account.MaxPositionSize,
+            commissionsPercent: config.Account.CommissionsPercent,
+            taxRate: config.Account.TaxRate,
+            stopLossPercent: config.RiskManagement.StopLossPercent,
+            takeProfitPercent: config.RiskManagement.TakeProfitPercent,
+            maxConcurrentTrades: config.RiskManagement.MaxConcurrentTrades,
+            minRiskRewardRatio: config.RiskManagement.MinRiskRewardRatio
         );
 
         _currentAccountValue = initialCapital;
@@ -51,15 +60,8 @@ public class BotSchedulerService
         Console.WriteLine("\n🤖 Bot Cripto avviato!");
         Console.WriteLine($"📊 Monitoraggio ogni {CheckIntervalMinutes} minuti...\n");
 
-        // Esegui il primo controllo immediatamente
-        await CheckMarketAsync();
-
-        // Timer per il controllo ogni CheckIntervalMinutes minuti
-        _marketCheckTimer = new Timer(
-            async _ => await CheckMarketAsync(),
-            null,
-            TimeSpan.FromMinutes(CheckIntervalMinutes),
-            TimeSpan.FromMinutes(CheckIntervalMinutes));
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
 
         // Timer per il report settimanale (ogni lunedì alle 00:00)
         var now = DateTime.UtcNow;
@@ -69,14 +71,32 @@ public class BotSchedulerService
 
         var timeUntilMonday = nextMonday - now;
         _weeklyReportTimer = new Timer(
-            _ => _reportingService.GenerateWeeklyReport(),
+            _ =>
+            {
+                try { _reportingService.GenerateWeeklyReport(); }
+                catch (Exception ex) { Console.WriteLine($"❌ Errore nel report settimanale: {ex.Message}"); }
+            },
             null,
             timeUntilMonday,
             TimeSpan.FromDays(7));
 
         Console.WriteLine($"⏰ Prossimo report settimanale: {nextMonday:yyyy-MM-dd HH:mm:ss} UTC");
 
-        await Task.Delay(-1);
+        // Cicli sequenziali: un ciclo non parte mai mentre il precedente è ancora in corso.
+        // Se un ciclo dura più dell'intervallo, i tick persi vengono saltati (non accumulati).
+        using var periodic = new PeriodicTimer(TimeSpan.FromMinutes(CheckIntervalMinutes));
+        try
+        {
+            do
+            {
+                await CheckMarketAsync();
+            }
+            while (await periodic.WaitForNextTickAsync(token));
+        }
+        catch (OperationCanceledException)
+        {
+            // arresto richiesto (Ctrl+C / Stop)
+        }
     }
 
     public void Stop()
@@ -85,7 +105,7 @@ public class BotSchedulerService
             return;
 
         _isRunning = false;
-        _marketCheckTimer?.Dispose();
+        _cts?.Cancel();
         _weeklyReportTimer?.Dispose();
         Console.WriteLine("\n🛑 Bot Cripto fermato.");
     }
@@ -99,12 +119,13 @@ public class BotSchedulerService
 
             // Recupera tutte le criptovalute
             var cryptos = await _dataService.GetLargeCapCryptocurrenciesAsync();
-            Console.WriteLine($"📈 Analizzando {cryptos.Count} criptovalute (max 500 per performance)...");
+            Console.WriteLine($"📈 Analizzando {cryptos.Count} criptovalute (max {_config.Monitoring.MaxCryptocurrenciesToAnalyze})...");
 
             int signalsFound = 0;
             int signalsFiltered = 0;
             var rejectionCounts = new Dictionary<string, int>();
             await CloseTradesAtTakeProfitAsync(cryptos);
+            RefreshAccountValue();
             var openTrades = _reportingService.GetAllTrades().Where(t => t.Status == "Open").ToList();
 
             var openSymbols = new HashSet<string>(openTrades.Select(t => t.Symbol));
@@ -123,11 +144,11 @@ public class BotSchedulerService
                 try
                 {
                     // Recupera candele per l'analisi
-                    var candles = await _dataService.GetCandlesAsync(crypto.Symbol, "4h", 100);
+                    var candles = await _dataService.GetCandlesAsync(crypto.Symbol, _config.Monitoring.CandleTimeframe, _config.Monitoring.CandlesLookback);
 
-                    if (candles.Count < 50)
+                    if (candles.Count < _config.Monitoring.MinCandlesForAnalysis)
                     {
-                        CountRejection("Dati insufficienti (candele < 50)");
+                        CountRejection($"Dati insufficienti (candele < {_config.Monitoring.MinCandlesForAnalysis})");
                         continue;
                     }
 
@@ -219,10 +240,10 @@ public class BotSchedulerService
             }
 
             // Calcola e mostra metriche giornaliere ogni 10 cicli
-            if (_checksPerformed % 10 == 0)
+            if (_checksPerformed % _config.Reporting.ShowMetricsEveryNCycles == 0)
             {
                 var allTrades = _reportingService.GetAllTrades();
-                var metrics = _riskManager.CalculatePerformanceMetrics(allTrades, 1000m);
+                var metrics = _riskManager.CalculatePerformanceMetrics(allTrades, _config.Account.InitialCapital);
                 if (metrics.TotalTrades > 0)
                 {
                     Console.WriteLine($"\n📊 Metriche cumulative (dopo {_checksPerformed} cicli):");
@@ -248,6 +269,24 @@ public class BotSchedulerService
         }
     }
 
+    // Profitto netto in € (commissioni e tasse incluse) di un trade chiuso al prezzo indicato.
+    private decimal? NetProfit(Trade trade, decimal exitPrice) =>
+        trade.PositionSize is > 0
+            ? _riskManager.CalculateProfitAndTaxes(trade.EntryPrice, exitPrice, trade.PositionSize.Value, exitPrice > trade.EntryPrice).NetProfit
+            : null;
+
+    // Valore account = capitale iniziale + profitto netto (dopo commissioni e tasse) dei trade chiusi.
+    // Ricalcolato dallo storico, così resta corretto anche dopo un riavvio.
+    // I trade senza size salvata (aperti prima di questa versione) non sono valorizzabili e vengono ignorati.
+    private void RefreshAccountValue()
+    {
+        var realized = _reportingService.GetAllTrades()
+            .Where(t => t.Status == "Closed" && t.PositionSize.HasValue)
+            .Sum(t => t.Profit ?? 0);
+
+        _currentAccountValue = _config.Account.InitialCapital + realized;
+    }
+
     // Chiude i trade aperti che hanno raggiunto il take profit o lo stop loss salvati all'apertura
     // (per i trade senza livelli salvati: take profit di default a entry * (1 + TakeProfitPercent)).
     private async Task CloseTradesAtTakeProfitAsync(List<Cryptocurrency> cryptos)
@@ -259,16 +298,16 @@ public class BotSchedulerService
             if (!prices.TryGetValue(trade.Symbol, out var price) || price <= 0)
                 continue;
 
-            var takeProfit = trade.TakeProfitPrice ?? trade.EntryPrice * (1 + RiskManager.TakeProfitPercent);
+            var takeProfit = trade.TakeProfitPrice ?? trade.EntryPrice * (1 + _riskManager.TakeProfitPercent);
 
             if (price >= takeProfit)
             {
-                await _reportingService.CloseTradeAsync(trade.Symbol, price);
+                await _reportingService.CloseTradeAsync(trade.Symbol, price, NetProfit(trade, price));
                 Console.WriteLine($"   🎯 Take profit: {trade.Symbol} chiuso a {price} (entrata {trade.EntryPrice}, TP {takeProfit})");
             }
             else if (trade.StopLossPrice is decimal stop && price <= stop)
             {
-                await _reportingService.CloseTradeAsync(trade.Symbol, price);
+                await _reportingService.CloseTradeAsync(trade.Symbol, price, NetProfit(trade, price));
                 Console.WriteLine($"   🛑 Stop loss: {trade.Symbol} chiuso a {price} (entrata {trade.EntryPrice}, SL {stop})");
             }
         }

@@ -9,14 +9,17 @@ public class CryptoDataService
     private const string BaseUrl = "https://api.crypto.com/v2";
     private const string BybitBaseUrl = "https://api.bybit.com/v5";
     private const string CoinGeckoBaseUrl = "https://api.coingecko.com/api/v3";
-    private const decimal MinVolume24hUsd = 2_000_000m;
+    private readonly decimal MinVolume24hUsd;
+    private readonly int _maxCryptos;
     private readonly List<string> _largeCapCryptos = new();
     private int _apiCallCount = 0;
     private DateTime _lastApiCallTime = DateTime.UtcNow;
     private const int RateLimitDelayMs = 100; // milliseconds between calls
 
-    public CryptoDataService()
+    public CryptoDataService(decimal minVolume24hUsd = 2_000_000m, int maxCryptos = 500)
     {
+        MinVolume24hUsd = minVolume24hUsd;
+        _maxCryptos = maxCryptos;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
@@ -154,7 +157,7 @@ public class CryptoDataService
                 }
             }
 
-            return result.Count > 0 ? result.OrderByDescending(c => c.CurrentPrice).Take(500).ToList() : null;
+            return result.Count > 0 ? result.OrderByDescending(c => c.CurrentPrice).Take(_maxCryptos).ToList() : null;
         }
         catch (Exception ex)
         {
@@ -209,7 +212,7 @@ public class CryptoDataService
                 }
             }
 
-            return result.Count > 0 ? result.OrderByDescending(c => c.CurrentPrice).Take(500).ToList() : null;
+            return result.Count > 0 ? result.OrderByDescending(c => c.CurrentPrice).Take(_maxCryptos).ToList() : null;
         }
         catch (Exception ex)
         {

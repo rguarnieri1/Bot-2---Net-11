@@ -12,8 +12,14 @@ public class SmaCrossoverStrategy
     private readonly decimal _bodyStrengthThreshold = 0.5m;      // Corpo deve essere 50% della candela
     private readonly int _momentumLookback = 10;                 // Candele per il filtro momentum
     private readonly int _crossoverLookback = 5;                 // Il cross deve essere avvenuto entro N candele, non solo sull'ultima
-    private readonly decimal _rsiExtremeOverbought = 85m;
-    private readonly decimal _rsiExtremeOversold = 15m;
+    private readonly decimal _rsiExtremeOverbought;
+    private readonly decimal _rsiExtremeOversold;
+
+    public SmaCrossoverStrategy(decimal rsiOverbought = 70m, decimal rsiOversold = 30m)
+    {
+        _rsiExtremeOverbought = rsiOverbought;
+        _rsiExtremeOversold = rsiOversold;
+    }
 
     public AnalysisResult Analyze(string symbol, List<Candle> candles)
     {
@@ -118,36 +124,19 @@ public class SmaCrossoverStrategy
         // 6️⃣ CANDLE CONFIRMATION - Solid body and alignment
         var lastCandle = candles.Last();
 
-        decimal lastCandleBody, lastCandleRange, bodyStrength;
-        bool lastCandleConfirms;
+        // Corpo orientato nella direzione del trend (positivo = candela a favore del trade)
+        var lastCandleRange = lastCandle.High - lastCandle.Low;
+        var directedBody = isUptrendAligned
+            ? lastCandle.Close - lastCandle.Open
+            : lastCandle.Open - lastCandle.Close;
+        var bodyStrength = lastCandleRange > 0 ? directedBody / lastCandleRange : 0;
 
-        if (isUptrendAligned)
+        if (directedBody <= 0 || bodyStrength < _bodyStrengthThreshold)
         {
-            lastCandleBody = lastCandle.Close - lastCandle.Open;
-            lastCandleRange = lastCandle.High - lastCandle.Low;
-            bodyStrength = lastCandleRange > 0 ? lastCandleBody / lastCandleRange : 0;
-
-            lastCandleConfirms = lastCandleBody > 0 && bodyStrength >= _bodyStrengthThreshold;
-
-            if (!lastCandleConfirms)
-            {
-                result.Signal = "Rejected - Last candle not bullish enough";
-                return result;
-            }
-        }
-        else
-        {
-            lastCandleBody = lastCandle.Open - lastCandle.Close;
-            lastCandleRange = lastCandle.High - lastCandle.Low;
-            bodyStrength = lastCandleRange > 0 ? lastCandleBody / lastCandleRange : 0;
-
-            lastCandleConfirms = lastCandleBody > 0 && bodyStrength >= _bodyStrengthThreshold;
-
-            if (!lastCandleConfirms)
-            {
-                result.Signal = "Rejected - Last candle not bearish enough";
-                return result;
-            }
+            result.Signal = isUptrendAligned
+                ? "Rejected - Last candle not bullish enough"
+                : "Rejected - Last candle not bearish enough";
+            return result;
         }
 
         result.Indicators["CandleBodyStrength"] = bodyStrength;
