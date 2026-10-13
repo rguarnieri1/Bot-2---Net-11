@@ -51,6 +51,15 @@ public class Trade
     [JsonProperty("ExitPrice")]
     public decimal? ExitPrice { get; set; }
 
+    [JsonProperty("StopLossPrice")]
+    public decimal? StopLossPrice { get; set; }
+
+    [JsonProperty("TakeProfitPrice")]
+    public decimal? TakeProfitPrice { get; set; }
+
+    [JsonProperty("PositionSize")]
+    public decimal? PositionSize { get; set; }
+
     [JsonProperty("Strategy")]
     public string Strategy { get; set; }
 

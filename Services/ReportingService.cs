@@ -18,7 +18,8 @@ public class ReportingService
         LoadTrades();
     }
 
-    public void RecordTrade(string symbol, decimal entryPrice, string strategy)
+    public void RecordTrade(string symbol, decimal entryPrice, string strategy,
+        decimal? stopLossPrice = null, decimal? takeProfitPrice = null, decimal? positionSize = null)
     {
         var trade = new Trade
         {
@@ -26,6 +27,9 @@ public class ReportingService
             EntryPrice = entryPrice,
             OpenTime = DateTime.UtcNow,
             Strategy = strategy,
+            StopLossPrice = stopLossPrice,
+            TakeProfitPrice = takeProfitPrice,
+            PositionSize = positionSize,
             Status = "Open"
         };
 

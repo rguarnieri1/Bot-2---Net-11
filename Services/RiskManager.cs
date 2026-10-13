@@ -5,6 +5,9 @@ namespace BotCripto.Services;
 public class RiskManager
 {
     private const int MaxConcurrentTrades = 100;
+    public const decimal TakeProfitPercent = 0.02m;
+    private const decimal DefaultStopLossPercent = 0.015m;
+    private const decimal MinRiskRewardRatio = 0.5m;
 
     private readonly decimal _accountSize;
     private readonly decimal _riskPerTrade;
@@ -34,7 +37,8 @@ public class RiskManager
         decimal entryPrice,
         decimal volatilityPercent,
         List<Trade> openTrades,
-        decimal currentAccountValue)
+        decimal currentAccountValue,
+        decimal? strategyStopLossPrice = null)
     {
         var result = new PositionSizingResult
         {
@@ -44,9 +48,11 @@ public class RiskManager
             Reason = ""
         };
 
-        // 1️⃣ Calcola stop loss a 1.5%
-        var stopLossPercent = 0.015m;
-        var stopLossPrice = entryPrice * (1 - stopLossPercent);
+        // 1️⃣ Stop loss: quello della strategia (sotto l'entrata), altrimenti default 1.5%
+        var stopLossPrice = strategyStopLossPrice is > 0 && strategyStopLossPrice < entryPrice
+            ? strategyStopLossPrice.Value
+            : entryPrice * (1 - DefaultStopLossPercent);
+        var stopLossPercent = (entryPrice - stopLossPrice) / entryPrice;
         var riskPerUnit = entryPrice - stopLossPrice;
 
         if (riskPerUnit <= 0)
@@ -68,9 +74,8 @@ public class RiskManager
             positionSize = maxPositionValue / entryPrice;
         }
 
-        // 4️⃣ Calcola target a 3%
-        var targetPercent = 0.03m;
-        var targetPrice = entryPrice * (1 + targetPercent);
+        // 4️⃣ Calcola target (take profit)
+        var targetPrice = entryPrice * (1 + TakeProfitPercent);
         var profitPerUnit = targetPrice - entryPrice;
 
         // 5️⃣ Verifica numero massimo di trade simultanei
@@ -99,9 +104,9 @@ public class RiskManager
         var totalRisk = positionSize * riskPerUnit;
         var riskRewardRatio = netProfit / totalRisk;
 
-        if (riskRewardRatio < 1.2m)
+        if (riskRewardRatio < MinRiskRewardRatio)
         {
-            result.Reason = $"Risk-reward too low: {riskRewardRatio:F2} < 1.2 required";
+            result.Reason = $"Risk-reward too low: {riskRewardRatio:F2} < {MinRiskRewardRatio:F1} required";
             return result;
         }
 

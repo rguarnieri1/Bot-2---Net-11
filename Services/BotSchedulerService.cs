@@ -104,7 +104,10 @@ public class BotSchedulerService
             int signalsFound = 0;
             int signalsFiltered = 0;
             var rejectionCounts = new Dictionary<string, int>();
+            await CloseTradesAtTakeProfitAsync(cryptos);
             var openTrades = _reportingService.GetAllTrades().Where(t => t.Status == "Open").ToList();
+
+            var openSymbols = new HashSet<string>(openTrades.Select(t => t.Symbol));
 
             void CountRejection(string category)
             {
@@ -128,6 +131,12 @@ public class BotSchedulerService
                         continue;
                     }
 
+                    if (openSymbols.Contains(crypto.Symbol))
+                    {
+                        CountRejection("Trade già aperto su questo simbolo");
+                        continue;
+                    }
+
                     var volatilityPercent = CalculateVolatility(candles);
 
                     // ✅ STRATEGIA PRINCIPALE: SMA CROSSOVER
@@ -135,7 +144,12 @@ public class BotSchedulerService
                     // 1️⃣ SMA Strategy + Candle Confirmation (Principale - Win Rate 55-60%)
                     var smaResult = _smaStrategy.Analyze(crypto.Symbol, candles);
 
-                    if (smaResult.IsSignal)
+                    // Il bot opera solo long (spot): i segnali SELL (death cross) non aprono posizioni
+                    if (smaResult.IsSignal && smaResult.Indicators.TryGetValue("Trend", out var trend) && trend < 0)
+                    {
+                        CountRejection("Strategia: segnale SELL ignorato (solo long)");
+                    }
+                    else if (smaResult.IsSignal)
                     {
                         // Valida con RiskManager
                         var positionResult = _riskManager.CalculatePosition(
@@ -143,7 +157,8 @@ public class BotSchedulerService
                             crypto.CurrentPrice,
                             volatilityPercent,
                             openTrades,
-                            _currentAccountValue
+                            _currentAccountValue,
+                            smaResult.Indicators.TryGetValue("StopLoss", out var strategyStop) ? strategyStop : null
                         );
 
                         if (positionResult.IsValid)
@@ -157,8 +172,13 @@ public class BotSchedulerService
                             _reportingService.RecordTrade(
                                 crypto.Symbol,
                                 crypto.CurrentPrice,
-                                "SMA Strategy (Primary)");
+                                "SMA Strategy (Primary)",
+                                positionResult.StopLossPrice,
+                                positionResult.TargetPrice,
+                                positionResult.PositionSize);
 
+                            openSymbols.Add(crypto.Symbol);
+                            openTrades.Add(_reportingService.GetAllTrades().Last());
                             _signalsGenerated++;
                             _tradesRecorded++;
                             signalsFound++;
@@ -225,6 +245,32 @@ public class BotSchedulerService
         catch (Exception ex)
         {
             Console.WriteLine($"❌ Errore nel controllo del mercato: {ex.Message}");
+        }
+    }
+
+    // Chiude i trade aperti che hanno raggiunto il take profit o lo stop loss salvati all'apertura
+    // (per i trade senza livelli salvati: take profit di default a entry * (1 + TakeProfitPercent)).
+    private async Task CloseTradesAtTakeProfitAsync(List<Cryptocurrency> cryptos)
+    {
+        var prices = cryptos.GroupBy(c => c.Symbol).ToDictionary(g => g.Key, g => g.First().CurrentPrice);
+
+        foreach (var trade in _reportingService.GetAllTrades().Where(t => t.Status == "Open").ToList())
+        {
+            if (!prices.TryGetValue(trade.Symbol, out var price) || price <= 0)
+                continue;
+
+            var takeProfit = trade.TakeProfitPrice ?? trade.EntryPrice * (1 + RiskManager.TakeProfitPercent);
+
+            if (price >= takeProfit)
+            {
+                await _reportingService.CloseTradeAsync(trade.Symbol, price);
+                Console.WriteLine($"   🎯 Take profit: {trade.Symbol} chiuso a {price} (entrata {trade.EntryPrice}, TP {takeProfit})");
+            }
+            else if (trade.StopLossPrice is decimal stop && price <= stop)
+            {
+                await _reportingService.CloseTradeAsync(trade.Symbol, price);
+                Console.WriteLine($"   🛑 Stop loss: {trade.Symbol} chiuso a {price} (entrata {trade.EntryPrice}, SL {stop})");
+            }
         }
     }
 
