@@ -1,5 +1,23 @@
 ﻿using BotCripto.Services;
 
+// Log su file di tutto l'output (Logs/cycles_yyyy-MM-dd.log; i backtest in Logs/backtest_yyyy-MM-dd.log)
+var logPrefix = Environment.GetCommandLineArgs().Skip(1).FirstOrDefault()?.StartsWith("--backtest", StringComparison.OrdinalIgnoreCase) == true ? "backtest" : "cycles";
+FileLogger.Install(Path.Combine(AppContext.BaseDirectory, "Logs"), logPrefix);
+Console.WriteLine($"▶️  Avvio Bot 2 - {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC - eseguibile in {AppContext.BaseDirectory}");
+
+// Qualsiasi errore che chiude il processo finisce nel log, così si sa perché il bot si è fermato
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+    Console.WriteLine($"💥 ERRORE FATALE, il bot si chiude: {e.ExceptionObject}");
+TaskScheduler.UnobservedTaskException += (_, e) =>
+{
+    Console.WriteLine($"⚠️  Eccezione non gestita in un task: {e.Exception}");
+    e.SetObserved();
+};
+AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+    Console.WriteLine($"⏹️  Bot 2 terminato - {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+Console.CancelKeyPress += (_, _) =>
+    Console.WriteLine("⏹️  Chiusura richiesta con Ctrl+C");
+
 Console.WriteLine(@"
 ╔════════════════════════════════════════════════════════╗
 ║       🤖 BOT 2 - SMA-Crypto - VERSIONE 1.1             ║
