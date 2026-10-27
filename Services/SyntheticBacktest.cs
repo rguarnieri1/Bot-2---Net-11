@@ -6,13 +6,11 @@ public class SyntheticBacktest
 {
     private readonly RiskManager _riskManager;
     private readonly Random _random;
-    private readonly decimal _initialCapital;
-
-    public SyntheticBacktest(decimal initialCapital = 1000m)
+    // Nessun capitale iniziale: capitale investibile illimitato
+    public SyntheticBacktest(decimal capitalPerTrade = 10m)
     {
-        _initialCapital = initialCapital;
         _riskManager = new RiskManager(
-            capitalPerTrade: initialCapital * 0.10m,
+            capitalPerTrade: capitalPerTrade,
             rewardRiskRatio: 2.0m,
             commissionsPercent: 0.6m,
             taxRate: 0.26m
@@ -36,7 +34,6 @@ public class SyntheticBacktest
         {
             DaysOfData = daysOfData,
             SymbolsAnalyzed = numSymbols,
-            InitialCapital = _initialCapital,
             ExpectedWinRate = expectedWinRate,
             Trades = new List<Trade>(),
             ExecutionTime = DateTime.UtcNow
@@ -49,10 +46,7 @@ public class SyntheticBacktest
         GenerateSyntheticTrades(result, startDate, endDate, expectedWinRate, tradesPerSymbol);
 
         // Calcola metriche
-        result.Metrics = _riskManager.CalculatePerformanceMetrics(
-            result.Trades,
-            result.InitialCapital
-        );
+        result.Metrics = _riskManager.CalculatePerformanceMetrics(result.Trades);
 
         Console.WriteLine($"✅ Backtest completato!");
         Console.WriteLine($"   • Trade generati: {result.Trades.Count}");
@@ -125,6 +119,7 @@ public class SyntheticBacktest
                     CloseTime = closeTime,
                     EntryPrice = entryPrice,
                     ExitPrice = exitPrice,
+                    PositionSize = 1m, // 1 unità: il profitto è la differenza di prezzo
                     Strategy = "SMA Strategy (Primary)",
                     Status = "Closed",
                     Profit = exitPrice - entryPrice,
@@ -152,7 +147,7 @@ public class SyntheticBacktest
         Console.WriteLine($"   • Timeframe: 4H (sintetico)");
 
         Console.WriteLine($"\n💼 ACCOUNT METRICS:");
-        Console.WriteLine($"   • Capital iniziale: €{result.InitialCapital:F2}");
+        Console.WriteLine($"   • Capitale investibile: illimitato");
         Console.WriteLine($"   • Total Trades: {result.Metrics.TotalTrades}");
         Console.WriteLine($"   • P&L Lordo: €{result.Metrics.TotalProfit:F2}");
         Console.WriteLine($"   • Commissioni (0.1%): €{result.Metrics.TotalCommissions:F2}");
@@ -186,7 +181,6 @@ public class SyntheticBacktest
         Console.WriteLine($"   • Annualized ROI: {annualizedROI:F2}%");
         Console.WriteLine($"   • Annualized Profit: €{annualizedProfit:F2}");
         Console.WriteLine($"   • Monthly Profit (avg): €{monthlyProfit:F2}");
-        Console.WriteLine($"   • Final Account Value: €{result.InitialCapital + result.Metrics.TotalProfit - result.Metrics.TotalCommissions:F2}");
 
         Console.WriteLine($"\n✅ VALIDAZIONE:");
         if (result.Metrics.WinRate >= 0.55m)
@@ -268,7 +262,6 @@ public class SyntheticBacktestResult
 {
     public int DaysOfData { get; set; }
     public int SymbolsAnalyzed { get; set; }
-    public decimal InitialCapital { get; set; }
     public decimal ExpectedWinRate { get; set; }
     public List<Trade> Trades { get; set; } = new();
     public PerformanceMetrics Metrics { get; set; } = new();

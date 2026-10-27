@@ -81,7 +81,7 @@ async Task RunBacktestAsync()
 {
     Console.WriteLine("\n🔍 MODALITA' BACKTEST SINTETICO ATTIVATA\n");
 
-    var backtest = new SyntheticBacktest(initialCapital: 100m);
+    var backtest = new SyntheticBacktest();
 
     try
     {

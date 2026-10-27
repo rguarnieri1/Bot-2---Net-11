@@ -148,8 +148,7 @@ public class RiskManager
     }
 
     public PerformanceMetrics CalculatePerformanceMetrics(
-        List<Trade> trades,
-        decimal? initialCapital = null)
+        List<Trade> trades)
     {
         var metrics = new PerformanceMetrics();
 
@@ -193,8 +192,8 @@ public class RiskManager
         // ROI
         // TotalProfit è la somma di Trade.Profit, già in € e al netto di commissioni e tasse
         // (calcolato con CalculateProfitAndTaxes alla chiusura): non sottrarre TotalCommissions.
-        // Senza capitale iniziale (capitale illimitato) il ROI è calcolato sul totale investito nei trade chiusi.
-        var capitalBase = initialCapital ?? closedTrades.Sum(t => t.EntryPrice * (t.PositionSize ?? 0));
+        // Nessun capitale iniziale (capitale illimitato): il ROI è calcolato sul totale investito nei trade chiusi.
+        var capitalBase = closedTrades.Sum(t => t.EntryPrice * (t.PositionSize ?? 0));
         metrics.ROI = capitalBase > 0 ? (metrics.TotalProfit / capitalBase) * 100 : 0m;
 
         // Consecutive wins/losses
