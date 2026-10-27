@@ -16,7 +16,7 @@ public class BotSchedulerService
     private Timer? _weeklyReportTimer;
     private bool _isRunning = false;
 
-    private decimal _currentAccountValue;
+    private decimal _realizedPnl;
     private int _checksPerformed = 0;
     private int _signalsGenerated = 0;
     private int _tradesRecorded = 0;
@@ -25,27 +25,22 @@ public class BotSchedulerService
     public BotSchedulerService(BotConfig config)
     {
         _config = config;
-        var initialCapital = config.Account.InitialCapital;
         _dataService = new CryptoDataService(config.Monitoring.MinVolume, config.Monitoring.MaxCryptocurrenciesToAnalyze);
         _notificationService = new NotificationService();
         _reportingService = new ReportingService();
         _smaStrategy = new SmaCrossoverStrategy(
             config.Strategies.SmaCrossover.RsiOverboughtLevel,
             config.Strategies.SmaCrossover.RsiOversoldLevel);
+        // Capitale investibile illimitato: nessun importo totale, solo un importo fisso per trade
         _riskManager = new RiskManager(
-            initialCapital,
-            riskPercentPerTrade: config.Account.RiskPerTrade,
+            capitalPerTrade: config.Account.CapitalPerTrade,
             rewardRiskRatio: config.Account.RewardRiskRatio,
-            maxPositionSizePercent: config.Account.MaxPositionSize,
             commissionsPercent: config.Account.CommissionsPercent,
             taxRate: config.Account.TaxRate,
             stopLossPercent: config.RiskManagement.StopLossPercent,
             takeProfitPercent: config.RiskManagement.TakeProfitPercent,
-            maxConcurrentTrades: config.RiskManagement.MaxConcurrentTrades,
             minRiskRewardRatio: config.RiskManagement.MinRiskRewardRatio
         );
-
-        _currentAccountValue = initialCapital;
     }
 
     public async Task StartAsync()
@@ -125,7 +120,7 @@ public class BotSchedulerService
             int signalsFiltered = 0;
             var rejectionCounts = new Dictionary<string, int>();
             await CloseTradesAtTakeProfitAsync(cryptos);
-            RefreshAccountValue();
+            RefreshRealizedPnl();
             var openTrades = _reportingService.GetAllTrades().Where(t => t.Status == "Open").ToList();
 
             var openSymbols = new HashSet<string>(openTrades.Select(t => t.Symbol));
@@ -177,8 +172,6 @@ public class BotSchedulerService
                             crypto.Symbol,
                             crypto.CurrentPrice,
                             volatilityPercent,
-                            openTrades,
-                            _currentAccountValue,
                             smaResult.Indicators.TryGetValue("StopLoss", out var strategyStop) ? strategyStop : null
                         );
 
@@ -186,7 +179,6 @@ public class BotSchedulerService
                         {
                             smaResult.Indicators["PositionSize"] = positionResult.PositionSize;
                             smaResult.Indicators["RiskRewardRatio"] = positionResult.RiskRewardRatio;
-                            smaResult.Indicators["Leverage"] = positionResult.LeverageRatio;
                             smaResult.Indicators["ExpectedProfit"] = positionResult.ExpectedProfit;
 
                             await _notificationService.SendNotificationAsync(smaResult);
@@ -227,8 +219,8 @@ public class BotSchedulerService
             Console.WriteLine($"\n✅ Ciclo completato:");
             Console.WriteLine($"   • Segnali trovati: {signalsFound}");
             Console.WriteLine($"   • Segnali filtrati (rischio): {signalsFiltered}");
-            Console.WriteLine($"   • Trade aperti: {openTrades.Count}");
-            Console.WriteLine($"   • Account value (stimato): €{_currentAccountValue:F2}");
+            Console.WriteLine($"   • Trade aperti: {openTrades.Count} (capitale impegnato €{openTrades.Sum(t => t.EntryPrice * (t.PositionSize ?? 0)):F2})");
+            Console.WriteLine($"   • P&L realizzato: €{_realizedPnl:F2}");
 
             if (rejectionCounts.Count > 0)
             {
@@ -243,7 +235,7 @@ public class BotSchedulerService
             if (_checksPerformed % _config.Reporting.ShowMetricsEveryNCycles == 0)
             {
                 var allTrades = _reportingService.GetAllTrades();
-                var metrics = _riskManager.CalculatePerformanceMetrics(allTrades, _config.Account.InitialCapital);
+                var metrics = _riskManager.CalculatePerformanceMetrics(allTrades);
                 if (metrics.TotalTrades > 0)
                 {
                     Console.WriteLine($"\n📊 Metriche cumulative (dopo {_checksPerformed} cicli):");
@@ -275,16 +267,16 @@ public class BotSchedulerService
             ? _riskManager.CalculateProfitAndTaxes(trade.EntryPrice, exitPrice, trade.PositionSize.Value, exitPrice > trade.EntryPrice).NetProfit
             : null;
 
-    // Valore account = capitale iniziale + profitto netto (dopo commissioni e tasse) dei trade chiusi.
+    // P&L realizzato = profitto netto (dopo commissioni e tasse) dei trade chiusi.
     // Ricalcolato dallo storico, così resta corretto anche dopo un riavvio.
     // I trade senza size salvata (aperti prima di questa versione) non sono valorizzabili e vengono ignorati.
-    private void RefreshAccountValue()
+    private void RefreshRealizedPnl()
     {
         var realized = _reportingService.GetAllTrades()
             .Where(t => t.Status == "Closed" && t.PositionSize.HasValue)
             .Sum(t => t.Profit ?? 0);
 
-        _currentAccountValue = _config.Account.InitialCapital + realized;
+        _realizedPnl = realized;
     }
 
     // Chiude i trade aperti che hanno raggiunto il take profit o lo stop loss salvati all'apertura
@@ -336,8 +328,6 @@ public class BotSchedulerService
     // Raggruppa i motivi di scarto del RiskManager in categorie leggibili per la diagnostica.
     private static string ClassifyRiskRejection(string reason)
     {
-        if (reason.Contains("Max concurrent trades"))
-            return "Risk Manager: troppi trade aperti simultaneamente";
         if (reason.Contains("profit"))
             return "Risk Manager: profitto non copre commissioni";
         if (reason.Contains("Risk-reward"))

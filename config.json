@@ -6,9 +6,7 @@
     "mode": "Conservative Trading"
   },
   "account": {
-    "initialCapital": 150,
-    "riskPerTrade": 0.01,
-    "maxPositionSize": 0.10,
+    "capitalPerTrade": 10,
     "maxLeverage": 1.5,
     "rewardRiskRatio": 2.0,
     "commissionsPercent": 0.8,
@@ -46,8 +44,7 @@
     "stopLossPercent": 0.03,
     "takeProfitPercent": 0.02,
     "trailingStopPercent": 0.02,
-    "maxConcurrentTrades": 15,
-    "positionSizingMethod": "RiskBased",
+    "positionSizingMethod": "FixedAmount",
     "minRiskRewardRatio": 0.5,
     "validateBeforeEntry": true
   },

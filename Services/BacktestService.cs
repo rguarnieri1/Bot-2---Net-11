@@ -9,14 +9,12 @@ public class BacktestService
     private readonly CryptoDataService _dataService;
     private readonly RiskManager _riskManager;
 
-    public BacktestService(decimal initialCapital = 1000m)
+    public BacktestService(decimal capitalPerTrade = 10m)
     {
         _dataService = new CryptoDataService();
         _riskManager = new RiskManager(
-            initialCapital,
-            riskPercentPerTrade: 0.01m,
+            capitalPerTrade,
             rewardRiskRatio: 2.0m,
-            maxPositionSizePercent: 0.10m,
             commissionsPercent: 0.6m,
             taxRate: 0.26m
         );
@@ -39,7 +37,6 @@ public class BacktestService
             EndDate = endDate,
             Timeframe = timeframe,
             SymbolsAnalyzed = symbols.Count,
-            InitialCapital = 1000m,
             Trades = new List<Trade>(),
             AnalysisResults = new List<AnalysisResult>()
         };
@@ -94,10 +91,7 @@ public class BacktestService
         SimulateTradeClosures(backtestResult);
 
         // Calcola metriche
-        backtestResult.Metrics = _riskManager.CalculatePerformanceMetrics(
-            backtestResult.Trades,
-            backtestResult.InitialCapital
-        );
+        backtestResult.Metrics = _riskManager.CalculatePerformanceMetrics(backtestResult.Trades);
 
         backtestResult.TotalSignalsGenerated = totalSignals;
         backtestResult.TotalSignalsFiltered = totalFiltered;
@@ -185,7 +179,7 @@ public class BacktestService
         sb.AppendLine($"   • Tasso filtro: {(decimal)result.TotalSignalsFiltered / (result.TotalSignalsGenerated + result.TotalSignalsFiltered) * 100:F1}%");
 
         sb.AppendLine($"\n💼 ACCOUNT METRICS:");
-        sb.AppendLine($"   • Capital iniziale: €{result.InitialCapital:F2}");
+        sb.AppendLine($"   • Capitale investibile: illimitato");
         sb.AppendLine($"   • Total P&L: €{result.Metrics.TotalProfit:F2}");
         sb.AppendLine($"   • Commissioni: €{result.Metrics.TotalCommissions:F2}");
         sb.AppendLine($"   • Net P&L: €{result.Metrics.TotalProfit - result.Metrics.TotalCommissions:F2}");
@@ -271,7 +265,6 @@ public class BacktestResult
     public string? Timeframe { get; set; }
     public int SymbolsAnalyzed { get; set; }
     public int CandleSetsAnalyzed { get; set; }
-    public decimal InitialCapital { get; set; }
     public int TotalSignalsGenerated { get; set; }
     public int TotalSignalsFiltered { get; set; }
     public List<Trade> Trades { get; set; } = new();

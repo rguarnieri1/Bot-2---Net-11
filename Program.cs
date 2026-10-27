@@ -49,13 +49,11 @@ async Task RunLiveAsync()
     Console.WriteLine("     • Configurazione: SMA 10, 20, 50");
     Console.WriteLine("     • Filtri: Volume, Momentum, Candle Body, RSI, Golden/Death Cross");
     Console.WriteLine("\nImpostazioni:");
-    var capital = config.Account.InitialCapital;
-    Console.WriteLine($"  • Capitale Iniziale: €{capital:F2}");
+    Console.WriteLine("  • Capitale investibile: illimitato");
     Console.WriteLine($"  • Intervallo Monitoraggio: {config.Monitoring.IntervalMinutes} minuti");
     Console.WriteLine($"  • Max Crypto: {config.Monitoring.MaxCryptocurrenciesToAnalyze}");
-    Console.WriteLine($"  • Risk per Trade: {config.Account.RiskPerTrade:P0} (€{capital * config.Account.RiskPerTrade:F2})");
-    Console.WriteLine($"  • Max Position Size: {config.Account.MaxPositionSize:P0} (€{capital * config.Account.MaxPositionSize:F2})");
-    Console.WriteLine($"  • Take Profit: {config.RiskManagement.TakeProfitPercent:P0} | Max trade aperti: {config.RiskManagement.MaxConcurrentTrades}");
+    Console.WriteLine($"  • Importo per trade: €{config.Account.CapitalPerTrade:F2}");
+    Console.WriteLine($"  • Take Profit: {config.RiskManagement.TakeProfitPercent:P0} | Max trade aperti: illimitati");
     Console.WriteLine("  • Report Settimanale: Lunedì 00:00");
     Console.WriteLine($"  • Tracking Metriche: Ogni {config.Reporting.ShowMetricsEveryNCycles} cicli");
 
