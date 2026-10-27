@@ -42,7 +42,8 @@ public class BotSchedulerService
             stopLossPercent: config.RiskManagement.StopLossPercent,
             takeProfitPercent: config.RiskManagement.TakeProfitPercent,
             maxConcurrentTrades: config.RiskManagement.MaxConcurrentTrades,
-            minRiskRewardRatio: config.RiskManagement.MinRiskRewardRatio
+            minRiskRewardRatio: config.RiskManagement.MinRiskRewardRatio,
+            capitalPerTrade: config.Account.CapitalPerTrade // importo fisso per trade (€)
         );
 
         _currentAccountValue = initialCapital;

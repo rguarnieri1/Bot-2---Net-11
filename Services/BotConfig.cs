@@ -52,6 +52,7 @@ public class AccountConfig
     [JsonProperty("initialCapital")] public decimal InitialCapital { get; set; } = 150m;
     [JsonProperty("riskPerTrade")] public decimal RiskPerTrade { get; set; } = 0.01m;
     [JsonProperty("maxPositionSize")] public decimal MaxPositionSize { get; set; } = 0.10m;
+    [JsonProperty("capitalPerTrade")] public decimal CapitalPerTrade { get; set; } = 10m;
     [JsonProperty("rewardRiskRatio")] public decimal RewardRiskRatio { get; set; } = 2.0m;
     [JsonProperty("commissionsPercent")] public decimal CommissionsPercent { get; set; } = 0.8m;
     [JsonProperty("taxRate")] public decimal TaxRate { get; set; } = 0.26m;

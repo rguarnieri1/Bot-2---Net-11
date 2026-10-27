@@ -36,7 +36,7 @@ async Task RunLiveAsync()
     Console.WriteLine($"  • Intervallo Monitoraggio: {config.Monitoring.IntervalMinutes} minuti");
     Console.WriteLine($"  • Max Crypto: {config.Monitoring.MaxCryptocurrenciesToAnalyze}");
     Console.WriteLine($"  • Risk per Trade: {config.Account.RiskPerTrade:P0} (€{capital * config.Account.RiskPerTrade:F2})");
-    Console.WriteLine($"  • Max Position Size: {config.Account.MaxPositionSize:P0} (€{capital * config.Account.MaxPositionSize:F2})");
+    Console.WriteLine($"  • Importo per trade: €{config.Account.CapitalPerTrade:F2} (fisso, nessun tetto massimo)");
     Console.WriteLine($"  • Take Profit: {config.RiskManagement.TakeProfitPercent:P0} | Max trade aperti: {config.RiskManagement.MaxConcurrentTrades}");
     Console.WriteLine("  • Report Settimanale: Lunedì 00:00");
     Console.WriteLine($"  • Tracking Metriche: Ogni {config.Reporting.ShowMetricsEveryNCycles} cicli");
